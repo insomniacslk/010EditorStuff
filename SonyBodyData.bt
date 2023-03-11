@@ -1,0 +1,75 @@
+//------------------------------------------------
+//--- 010 Editor v13.0.1 Binary Template
+//
+//      File: SonyBodyData.bt
+//   Authors: Andrea Barberio <insomniac@slackware.it>
+//   Version: 0.1
+//   Purpose: Analyze certain Sony firmware files
+//  Category: 
+// File Mask: 
+//  ID Bytes: 
+//   History: 
+//------------------------------------------------
+
+// See also:
+// * https://github.com/erik-smit/nex-hack/blob/master/src/fwd_chunks.c
+// * https://www.personal-view.com/faqs/sony-hack/languages
+// * https://github.com/ma1co/fwtool.py/blob/master/fwtool/sony/fdat.py
+// * https://oss.sony.net/Products/Linux/DI/ILCE-7M4_Ver200.html
+
+typedef struct {
+    UINT32 size;
+    char type[4] <read=Str("%s", this)>;
+    char payload[size];
+} Item <read=readItem>;
+
+string readItem(Item &item) {
+    // TODO check item.size for the fixed-size types
+    if (!Strcmp(item.type, "DATV")) {
+        if (!Strcmp(item.payload, "\x01\x00\x00\x00")) {
+            return "Target: camera body";
+        } else if (!Strcmp(item.payload, "\x01\x00\x00\x01")) {
+            return "Target: E-mount lens";
+        } else {
+            return "Target: Unknown";
+        }
+    }
+    if (!Strcmp(item.type, "PROV")) {
+        // the first two bytes are the version
+        uint16 ver = item.payload[1] + (item.payload[0] << 8);
+        // the last two bytes are reserved
+        // TODO fix `ver`, it always shows up as 0x0000
+        return Str("Protocol version: 0x%04x", ver);
+    }
+    if (!Strcmp(item.type, "UDID")) {
+        return "Descriptor IDs";
+    }
+    if (!Strcmp(item.type, "FDAT")) {
+        return "Firmware data";
+    }
+    if (!Strcmp(item.type, "DEND")) {
+        // The DEND payload contains a CRC32 of the entire file, excluding this record
+        int64 computedCsum = Checksum(CHECKSUM_CRC32, 0, FTell()-8-4);
+        int64 csum = item.payload[0] + 
+            ((item.payload[1] & 0xff) << 8) + 
+            ((item.payload[2] & 0xff) << 16) + 
+            ((item.payload[3] & 0xff) << 32);
+        if (csum & 0xffffffff != computedCsum & 0xffffffff) {
+            return Str("End of Record (invalid checksum: want 0x%08x)", computedCsum);
+        }
+        return "End of record (valid checksum)";
+    }
+    return "Unknown";
+}
+
+typedef struct BodyData {
+    char magic[8];
+    while (!FEof()) {
+        Item item;
+    }
+};
+
+BigEndian();
+FSeek(0);
+
+BodyData bodyData;
